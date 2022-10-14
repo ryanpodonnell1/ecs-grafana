@@ -1,0 +1,4 @@
+secretsprovider: awskms://alias/pulumi-secrets?region=us-east-1
+encryptedkey: AQICAHgODWaoodO7Grrhlr6P7VBFAb5Eopv/rwuM+mqvCPvhuAF9ZPJrEk6cvLO0iTWWLAelAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMHOc3mJWB7d152oq0AgEQgDuc/BJy/0kWlYffnmmLzY5GfH/oL1FgPxfSmsQ8sAQKzq4/dv9HfdINVAcMg+NZOo7XK/TTS/Pe/PDnBQ==
+config:
+  aws:region: us-east-1
