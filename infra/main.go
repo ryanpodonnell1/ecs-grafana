@@ -17,6 +17,7 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/route53"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
 func main() {
@@ -26,6 +27,9 @@ func main() {
 			"Application": pulumi.String("Metrics"),
 			"Name":        pulumi.String("Metrics-Infra"),
 		}
+
+		grafanaCfg := config.New(ctx, "grafana")
+		grafanaPort := grafanaCfg.GetInt("port")
 
 		currentIdentity, err := paws.GetCallerIdentity(ctx, nil, nil)
 		if err != nil {
@@ -231,6 +235,7 @@ func main() {
 			Configuration: ecs.ClusterConfigurationArgs{
 				ExecuteCommandConfiguration: ecs.ClusterConfigurationExecuteCommandConfigurationArgs{
 					KmsKeyId: metricsKms.KeyId,
+					Logging:  pulumi.String("DEFAULT"),
 				},
 			},
 			Settings: ecs.ClusterSettingArray{
@@ -361,9 +366,9 @@ func main() {
 			Description: pulumi.StringPtr("GrafanaLB"),
 			Ingress: ec2.SecurityGroupIngressArray{
 				ec2.SecurityGroupIngressArgs{
-					FromPort: pulumi.Int(3000),
+					FromPort: pulumi.Int(grafanaPort),
 					Protocol: pulumi.String("tcp"),
-					ToPort:   pulumi.Int(3000),
+					ToPort:   pulumi.Int(grafanaPort),
 					CidrBlocks: pulumi.StringArray{
 						pulumi.String("73.131.106.241/32"),
 					},
@@ -395,10 +400,15 @@ func main() {
 					"essential": true,
 					"portMappings": []map[string]int{
 						{
-							"containerPort": 3000,
+							"containerPort": grafanaPort,
 						},
 					},
-
+					"environment": []map[string]string{
+						{
+							"name":  "GF_SERVER_HTTP_PORT",
+							"value": fmt.Sprintf("%v", grafanaPort),
+						},
+					},
 					"memory": 2048,
 					"logConfiguration": map[string]interface{}{
 						"logDriver": "awslogs",
@@ -419,9 +429,9 @@ func main() {
 			Description: pulumi.StringPtr("GrafanaLB"),
 			Ingress: ec2.SecurityGroupIngressArray{
 				ec2.SecurityGroupIngressArgs{
-					FromPort:       pulumi.Int(3000),
+					FromPort:       pulumi.Int(grafanaPort),
 					Protocol:       pulumi.String("tcp"),
-					ToPort:         pulumi.Int(3000),
+					ToPort:         pulumi.Int(grafanaPort),
 					SecurityGroups: pulumi.StringArray{albSg.ID()},
 				},
 			},
@@ -464,11 +474,11 @@ func main() {
 
 		tg, err := lb.NewTargetGroup(ctx, "metrics", &lb.TargetGroupArgs{
 			NamePrefix: pulumi.StringPtr("mgraf-"),
-			Port:       pulumi.IntPtr(3000),
+			Port:       pulumi.IntPtr(grafanaPort),
 			Protocol:   pulumi.StringPtr("HTTP"),
 			HealthCheck: lb.TargetGroupHealthCheckArgs{
 				Enabled: pulumi.BoolPtr(true),
-				Port:    pulumi.StringPtr("3000"),
+				Port:    pulumi.StringPtr(fmt.Sprintf("%v", grafanaPort)),
 				Path:    pulumi.StringPtr("/"),
 				Matcher: pulumi.StringPtr("302"),
 			},
@@ -543,7 +553,7 @@ func main() {
 
 		_, err = lb.NewListener(ctx, "metrics", &lb.ListenerArgs{
 			LoadBalancerArn: albPub.Arn,
-			Port:            pulumi.IntPtr(3000),
+			Port:            pulumi.IntPtr(grafanaPort),
 			Protocol:        pulumi.StringPtr("HTTP"),
 			DefaultActions: lb.ListenerDefaultActionArray{
 				&lb.ListenerDefaultActionArgs{
@@ -585,7 +595,7 @@ func main() {
 			LoadBalancers: ecs.ServiceLoadBalancerArray{
 				ecs.ServiceLoadBalancerArgs{
 					ContainerName:  pulumi.String("grafana"),
-					ContainerPort:  pulumi.Int(3000),
+					ContainerPort:  pulumi.Int(grafanaPort),
 					TargetGroupArn: tg.Arn.ToStringPtrOutput(),
 				},
 			},
@@ -615,8 +625,8 @@ func main() {
 		}
 
 		_, err = ec2.NewSecurityGroupRule(ctx, "alb-sg-keepalive", &ec2.SecurityGroupRuleArgs{
-			FromPort:              pulumi.Int(3000),
-			ToPort:                pulumi.Int(3000),
+			FromPort:              pulumi.Int(grafanaPort),
+			ToPort:                pulumi.Int(grafanaPort),
 			SecurityGroupId:       albSg.ID(),
 			Protocol:              pulumi.String("tcp"),
 			SourceSecurityGroupId: serviceSg.ID(),
@@ -627,7 +637,7 @@ func main() {
 		}
 
 		url := r53.Fqdn.ApplyT(func(v string) string {
-			return fmt.Sprintf("http://%v:3000", v)
+			return fmt.Sprintf("http://%v:%v", v, grafanaPort)
 		}).(pulumi.StringOutput)
 		ctx.Export("URL", url)
 		return err
